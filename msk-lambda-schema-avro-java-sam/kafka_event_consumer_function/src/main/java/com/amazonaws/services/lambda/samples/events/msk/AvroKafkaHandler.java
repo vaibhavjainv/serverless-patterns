@@ -15,11 +15,24 @@ public class AvroKafkaHandler implements RequestHandler<ConsumerRecords<String, 
     @Override
     @Deserialization(type = DeserializationType.KAFKA_AVRO)
     public String handleRequest(ConsumerRecords<String, Contact> records, Context context) {
-        LOGGER.info("Received {} records", records.count());
+        LOGGER.info("=== AvroKafkaHandler called ===");
+        LOGGER.info("Event object: {}", records);
+        LOGGER.info("Number of records: {}", records.count());
+        
         for (ConsumerRecord<String, Contact> record : records) {
-            Contact contact = record.value(); // Contact class is auto-generated from Avro schema
-            LOGGER.info("Processing firstName: {}, zip {}", contact.getFirstname(), contact.getZip());
+            LOGGER.info("Processing record - Topic: {}, Partition: {}, Offset: {}", 
+                       record.topic(), record.partition(), record.offset());
+            LOGGER.info("Record key: {}", record.key());
+            LOGGER.info("Record value: {}", record.value());
+            
+            if (record.value() != null) {
+                Contact contact = record.value();
+                LOGGER.info("Contact details - firstName: {}, zip: {}", 
+                           contact.getFirstname(), contact.getZip());
+            }
         }
+        
+        LOGGER.info("=== AvroKafkaHandler completed ===");
         return "OK";
     }
 }
