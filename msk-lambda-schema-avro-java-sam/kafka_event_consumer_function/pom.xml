@@ -70,6 +70,20 @@
             <artifactId>avro</artifactId>
             <version>1.11.1</version>
         </dependency>
+
+        <dependency>
+        <groupId>software.amazon.lambda</groupId>
+        <artifactId>powertools-kafka</artifactId>
+        <version>2.1.0</version>
+        </dependency>
+        
+        <!-- Kafka clients dependency - compatibility works for >= 3.0.0 -->
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+            <version>4.0.0</version>
+        </dependency>
+        
     </dependencies>
 
     <build>
@@ -99,6 +113,24 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.1.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-maven-plugin</artifactId>
+                <version>1.11.3</version>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>schema</goal>
+                        </goals>
+                        <configuration>
+                            <sourceDirectory>${project.basedir}/src/main/avro/</sourceDirectory>
+                            <outputDirectory>${project.basedir}/src/main/java/</outputDirectory>
+                            <stringType>String</stringType>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
