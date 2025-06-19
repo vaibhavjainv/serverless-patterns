@@ -8,11 +8,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.lambda.powertools.kafka.Deserialization;
 import software.amazon.lambda.powertools.kafka.DeserializationType;
+import software.amazon.lambda.powertools.logging.Logging;
 
 public class AvroKafkaHandler implements RequestHandler<ConsumerRecords<String, Contact>, String> {
     private static final Logger LOGGER = LoggerFactory.getLogger(AvroKafkaHandler.class);
 
     @Override
+    @Logging(logEvent = true)
     @Deserialization(type = DeserializationType.KAFKA_AVRO)
     public String handleRequest(ConsumerRecords<String, Contact> records, Context context) {
         LOGGER.info("=== AvroKafkaHandler called ===");
