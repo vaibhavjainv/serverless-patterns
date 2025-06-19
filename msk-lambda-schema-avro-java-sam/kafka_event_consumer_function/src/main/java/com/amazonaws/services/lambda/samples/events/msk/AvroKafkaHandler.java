@@ -15,8 +15,9 @@ public class AvroKafkaHandler implements RequestHandler<ConsumerRecords<String, 
     @Override
     @Deserialization(type = DeserializationType.KAFKA_AVRO)
     public String handleRequest(ConsumerRecords<String, Contact> records, Context context) {
+        LOGGER.info("Received {} records", records.count());
         for (ConsumerRecord<String, Contact> record : records) {
-            Contact contact = record.value(); // User class is auto-generated from Avro schema
+            Contact contact = record.value(); // Contact class is auto-generated from Avro schema
             LOGGER.info("Processing firstName: {}, zip {}", contact.getFirstname(), contact.getZip());
         }
         return "OK";
