@@ -130,8 +130,7 @@ Resources:
       Architectures:
         - x86_64
       MemorySize: 512
-      Layers:
-        - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:81
+
       VpcConfig:
         SecurityGroupIds: !Ref SecurityGroupIds
         SubnetIds: !Ref SubnetIds

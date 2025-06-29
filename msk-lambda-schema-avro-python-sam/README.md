@@ -12,6 +12,7 @@ This project contains source code and supporting files for a serverless applicat
 - `kafka_event_producer_function` - Code for the Avro producer Lambda function.
 - `events` - Invocation events that you can use to invoke the functions.
 - `schemas` - Avro schema definitions.
+- `kafka_event_consumer_function/tests` - Unit tests for the consumer code.
 - `venv/` - Python virtual environment (created after setup).
 - `template.yaml` - A template that defines the application's Lambda functions.
 - `template_original.yaml` - The original template with placeholders that get replaced during deployment.
@@ -97,7 +98,7 @@ There is a CloudFormation template to deploy an Amazon MSK Cluster. You can depl
 ```bash
 cat kafka_topic_creator_output.txt
 ```
-You should see an output such as *Created topic MskIamPythonLambdaTopic.*
+You should see an output such as *Created topic <your-topic-name>.* where the topic name corresponds to what you specified when deploying the CloudFormation stack.
 
 If you are not able to find the file `kafka_topic_creator_output.txt` or if it is blank or you see an error message, then you need to run the file:
 
@@ -241,14 +242,14 @@ In the consumer logs, look for entries showing:
    - Receipt of the message batch from the MSK topic
    - Successful deserialization of the Avro message
    - The decoded message content and any processing performed on it
-   - You should see that the consumer only processed messages with zip codes starting with *1000*
-   - Messages with zip codes starting with *2000* are filtered out by the event source mapping and never reached the Lambda function
+   - You should see that the consumer only processed messages with zip codes starting with *2000*
+   - Messages with zip codes starting with *1000* are filtered out by the event source mapping and never reached the Lambda function
 
 The consumer Lambda function automatically processes messages from the MSK topic. It parses the Kafka messages and outputs the fields in the Kafka messages to CloudWatch logs.
 
 Each key has a list of messages. Each Kafka message has the following properties *Topic, Partition, Offset, TimeStamp, TimeStampType, Key and Value*
 
-The *Key* and *Value* are base64 encoded and have to be decoded. The Python code automatically decodes the base64 values. A message can also have a list of headers, each header having a key and a value.
+The *Key* and *Value* are base64 encoded and have to be decoded. [AWS Lambda Powertools for Python](https://docs.powertools.aws.dev/lambda/python/latest/) automatically decodes the base64 values. A message can also have a list of headers, each header having a key and a value.
 
 The code in this example prints out the fields in the Kafka message and also decrypts the key and the value and logs them in CloudWatch logs.
 
