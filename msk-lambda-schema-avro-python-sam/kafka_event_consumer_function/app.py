@@ -47,10 +47,13 @@ def lambda_handler(event: ConsumerRecords, context: LambdaContext):
         Success response
     """
     logger.info("=== AvroKafkaHandler called ===")
-    logger.info(f"Processing {len(event.records)} records")
+    
+    # Convert generator to list to get count
+    records_list = list(event.records)
+    logger.info(f"Processing {len(records_list)} records")
     
     try:
-        for record in event.records:
+        for record in records_list:
             # The record.value is automatically deserialized from Avro to a dictionary
             contact = record.value
             
@@ -79,7 +82,7 @@ def lambda_handler(event: ConsumerRecords, context: LambdaContext):
             if record.headers:
                 logger.info(f"Headers: {record.headers}")
         
-        logger.info(f"Successfully processed {len(event.records)} records")
+        logger.info(f"Successfully processed {len(list(event.records))} records")
         logger.info("=== AvroKafkaHandler completed ===")
         
         return {"statusCode": 200}
