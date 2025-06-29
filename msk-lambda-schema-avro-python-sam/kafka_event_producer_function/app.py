@@ -6,12 +6,15 @@ from typing import Dict, Any
 from kafka import KafkaProducer
 import io
 import fastavro
-import struct
 
 # AWS Lambda Powertools
 from aws_lambda_powertools import Logger, Tracer, Metrics
 from aws_lambda_powertools.logging import correlation_paths
 from aws_lambda_powertools.metrics import MetricUnit
+
+# AWS Glue Schema Registry - NEW INTEGRATION
+from aws_schema_registry import SchemaRegistryClient
+from aws_schema_registry.serde import encode
 
 # Initialize Powertools
 logger = Logger()
@@ -39,127 +42,87 @@ CONTACT_AVRO_SCHEMA = {
     ]
 }
 
-def get_or_register_schema(registry_name: str, schema_name: str):
-    """Get or register schema in Glue Schema Registry with auto-registration like Java."""
+def get_or_register_schema_version_with_glue_registry(registry_name: str, schema_name: str):
+    """Get or register schema version using aws-glue-schema-registry package."""
     try:
-        logger.info("Getting/registering schema in Glue Schema Registry (Java-compatible)", extra={
+        logger.info("Using aws-glue-schema-registry package for schema management", extra={
             "registry_name": registry_name,
             "schema_name": schema_name,
-            "auto_registration": True
+            "package": "aws-glue-schema-registry",
+            "method": "get_or_register_schema_version"
         })
         
+        # Create Glue client and Schema Registry client
         glue_client = boto3.client('glue')
+        schema_registry_client = SchemaRegistryClient(
+            glue_client=glue_client,
+            registry_name=registry_name
+        )
         
-        # Always register a new version with the correct schema (like Java auto-registration)
-        try:
-            logger.info("Registering new schema version with Java-compatible schema")
-            response = glue_client.register_schema_version(
-                SchemaId={
-                    'RegistryName': registry_name,
-                    'SchemaName': schema_name
-                },
-                SchemaDefinition=json.dumps(CONTACT_AVRO_SCHEMA)
-            )
-            schema_version_id = response['SchemaVersionId']
-            logger.info("Registered new schema version (Java-compatible)", extra={
-                "schema_version_id": schema_version_id,
-                "version_number": response.get('VersionNumber', 'unknown'),
-                "schema_has_namespace": True,
-                "schema_has_nullable_fields": True
-            })
-            
-        except glue_client.exceptions.AlreadyExistsException:
-            # Schema version already exists, get the latest
-            logger.info("Schema version already exists, getting latest")
-            latest_version_response = glue_client.get_schema_version(
-                SchemaId={
-                    'RegistryName': registry_name,
-                    'SchemaName': schema_name
-                },
-                SchemaVersionNumber={'LatestVersion': True}
-            )
-            schema_version_id = latest_version_response['SchemaVersionId']
-            logger.info("Using existing schema version", extra={
-                "schema_version_id": schema_version_id,
-                "version_number": latest_version_response.get('VersionNumber', 'unknown')
-            })
+        # Get or register schema version
+        schema_version = schema_registry_client.get_or_register_schema_version(
+            definition=json.dumps(CONTACT_AVRO_SCHEMA),
+            schema_name=schema_name,
+            data_format='AVRO'
+        )
         
-        return schema_version_id
+        logger.info("Schema version obtained via aws-glue-schema-registry", extra={
+            "schema_version_id": str(schema_version.version_id),
+            "version_number": schema_version.version_number,
+            "schema_name": schema_name,
+            "registry_name": registry_name,
+            "package": "aws-glue-schema-registry"
+        })
+        
+        return schema_version.version_id
         
     except Exception as e:
-        logger.exception("Failed to get/register Java-compatible schema", extra={
+        logger.exception("Failed to get/register schema using aws-glue-schema-registry", extra={
             "error": str(e),
             "registry_name": registry_name,
-            "schema_name": schema_name
+            "schema_name": schema_name,
+            "package": "aws-glue-schema-registry"
         })
-        raise RuntimeError(f"Failed to get/register Java-compatible schema: {str(e)}") from e
+        raise RuntimeError(f"Failed to get/register schema via aws-glue-schema-registry: {str(e)}") from e
 
-def serialize_avro_message_with_glue_registry_format(contact_data, schema_version_id):
-    """Serialize contact data to AWS Glue Schema Registry wire format (matching Java AWSKafkaAvroSerializer)."""
+def serialize_avro_message_with_glue_registry_package(contact_data, schema_version_id):
+    """Serialize contact data using aws-glue-schema-registry package."""
     try:
-        logger.info("Serializing message to AWS Glue Schema Registry wire format", extra={
+        logger.info("Serializing message using aws-glue-schema-registry package", extra={
             "contact_data": contact_data,
-            "schema_version_id": schema_version_id,
-            "format": "AWS_GLUE_SCHEMA_REGISTRY_WIRE_FORMAT"
+            "schema_version_id": str(schema_version_id),
+            "package": "aws-glue-schema-registry",
+            "method": "fastavro + encode"
         })
         
-        # Step 1: Serialize the data using fastavro
+        # Step 1: Serialize the data using fastavro (same as before)
         avro_buffer = io.BytesIO()
         fastavro.schemaless_writer(avro_buffer, CONTACT_AVRO_SCHEMA, contact_data)
         avro_data = avro_buffer.getvalue()
         
-        # Step 2: Create AWS Glue Schema Registry wire format header
-        # Based on AWS Glue Schema Registry specification and Java implementation
+        # Step 2: Use aws-glue-schema-registry encode function to add the header
+        encoded_message = encode(avro_data, schema_version_id)
         
-        # Magic byte (0x03 for AWS Glue Schema Registry)
-        magic_byte = b'\x03'
-        
-        # Compression byte (0x00 for no compression, 0x05 for ZLIB)
-        compression_byte = b'\x00'
-        
-        # Schema version ID as UUID bytes (16 bytes)
-        import uuid
-        schema_uuid = uuid.UUID(schema_version_id)
-        schema_version_bytes = schema_uuid.bytes  # 16 bytes
-        
-        # Step 3: Combine header and AVRO data
-        # Format: [MAGIC][COMPRESSION][SCHEMA_VERSION_UUID_16_BYTES][AVRO_DATA]
-        glue_registry_message = magic_byte + compression_byte + schema_version_bytes + avro_data
-        
-        logger.info("Message serialized to AWS Glue Schema Registry wire format", extra={
+        logger.info("Message serialized using aws-glue-schema-registry package", extra={
             "avro_data_size": len(avro_data),
-            "total_message_size": len(glue_registry_message),
-            "header_size": 18,  # 1 + 1 + 16
-            "magic_byte": magic_byte.hex(),
-            "compression_byte": compression_byte.hex(),
-            "schema_version_uuid": schema_uuid.hex,
-            "schema_version_bytes": schema_version_bytes.hex(),
+            "total_message_size": len(encoded_message),
+            "header_size": len(encoded_message) - len(avro_data),
+            "schema_version_id": str(schema_version_id),
+            "package": "aws-glue-schema-registry",
             "wire_format": "AWS_GLUE_SCHEMA_REGISTRY",
             "compatible_with_java_serializer": True
         })
         
-        # Step 4: Verification logging
-        logger.info("AWS Glue wire format verification", extra={
-            "header_breakdown": {
-                "magic_byte": f"0x{magic_byte.hex()} (AWS Glue magic)",
-                "compression": f"0x{compression_byte.hex()} (no compression)",
-                "schema_uuid_bytes": f"{schema_version_bytes.hex()} (16 bytes)",
-                "avro_data_preview": avro_data[:10].hex() if len(avro_data) >= 10 else avro_data.hex()
-            },
-            "total_size": len(glue_registry_message),
-            "format_matches_java": True,
-            "lambda_esm_compatible": True
-        })
-        
-        return glue_registry_message
+        return encoded_message
         
     except Exception as e:
-        logger.exception("Failed to serialize message to AWS Glue Schema Registry wire format", extra={
+        logger.exception("Failed to serialize message using aws-glue-schema-registry", extra={
             "error": str(e),
             "contact_data": contact_data,
-            "schema_version_id": schema_version_id
+            "schema_version_id": str(schema_version_id),
+            "package": "aws-glue-schema-registry"
         })
-        raise RuntimeError(f"Failed to serialize AWS Glue Schema Registry message: {str(e)}") from e
+        raise RuntimeError(f"Failed to serialize message via aws-glue-schema-registry: {str(e)}") from e
 
 def create_sample_contact(index: int) -> Dict[str, Any]:
     """Create a sample contact with realistic data."""
@@ -246,8 +209,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> str:
             "avro_schema": CONTACT_AVRO_SCHEMA
         })
         
-        # Get or register schema in Glue Schema Registry
-        schema_version_id = get_or_register_schema(registry_name, schema_name)
+        # Get or register schema in Glue Schema Registry using aws-glue-schema-registry package
+        schema_version_id = get_or_register_schema_version_with_glue_registry(registry_name, schema_name)
         
         # Get bootstrap brokers
         bootstrap_servers = get_bootstrap_brokers(cluster_arn)
@@ -267,12 +230,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> str:
         )
         logger.info("Kafka producer created successfully for AVRO messages")
         
-        logger.info("Starting AWS Glue Schema Registry wire format message production", extra={
+        logger.info("Starting AWS Glue Schema Registry message production using aws-glue-schema-registry package", extra={
             "topic": kafka_topic,
             "message_count": message_count,
             "schema_format": "AWS_GLUE_SCHEMA_REGISTRY_WIRE_FORMAT",
             "schema_registry": registry_name,
-            "schema_version_id": schema_version_id,
+            "schema_version_id": str(schema_version_id),
+            "package": "aws-glue-schema-registry",
             "matches_java_serializer": True
         })
         
@@ -292,11 +256,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> str:
             elif contact['zip'].startswith('2000'):
                 zip_2000_count += 1
             
-            # Serialize contact to AWS Glue Schema Registry wire format
-            avro_message = serialize_avro_message_with_glue_registry_format(contact, schema_version_id)
+            # Serialize contact to AWS Glue Schema Registry wire format using aws-glue-schema-registry package
+            avro_message = serialize_avro_message_with_glue_registry_package(contact, schema_version_id)
             
             # Log the contact details and AWS Glue wire format verification
-            logger.info("Sending AWS Glue Schema Registry message", extra={
+            logger.info("Sending AWS Glue Schema Registry message via aws-glue-schema-registry package", extra={
                 "contact_number": i+1,
                 "message_key": message_key,
                 "contact_data": contact,
@@ -304,8 +268,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> str:
                 "avro_format_verified": True,
                 "schema_registry": registry_name,
                 "schema_name": schema_name,
-                "schema_version_id": schema_version_id,
+                "schema_version_id": str(schema_version_id),
                 "message_format": "AWS_GLUE_SCHEMA_REGISTRY_WIRE_FORMAT",
+                "package": "aws-glue-schema-registry",
                 "matches_java_serializer": True
             })
             
@@ -313,13 +278,14 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> str:
             future = producer.send(kafka_topic, key=message_key, value=avro_message)
             record_metadata = future.get(timeout=60)
             
-            logger.info("AWS Glue Schema Registry message sent successfully", extra={
+            logger.info("AWS Glue Schema Registry message sent successfully via aws-glue-schema-registry package", extra={
                 "message_number": i+1,
                 "partition": record_metadata.partition,
                 "offset": record_metadata.offset,
                 "topic": record_metadata.topic,
                 "message_format": "AWS_GLUE_SCHEMA_REGISTRY_WIRE_FORMAT",
                 "serialized_size": len(avro_message),
+                "package": "aws-glue-schema-registry",
                 "matches_java_serializer": True
             })
             
@@ -347,13 +313,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> str:
         
         success_message = (f"Successfully sent {message_count} AVRO messages to Kafka topic: {kafka_topic} "
                           f"using schema {schema_name} (version {schema_version_id}) from registry {registry_name} "
+                          f"via aws-glue-schema-registry package "
                           f"(Zip codes: {zip_1000_count} with prefix 1000, {zip_2000_count} with prefix 2000)")
         
-        logger.info("Kafka AVRO Producer Lambda completed successfully", extra={
+        logger.info("Kafka AVRO Producer Lambda completed successfully using aws-glue-schema-registry package", extra={
             "success_message": success_message,
             "message_format": "AVRO_WITH_REGISTRY_HEADER",
             "total_messages_sent": message_count,
-            "schema_version_id": schema_version_id
+            "schema_version_id": str(schema_version_id),
+            "package": "aws-glue-schema-registry"
         })
         return success_message
         
